@@ -1,0 +1,6 @@
+streamlit
+boto3
+langchain
+langchain-core
+langchain-aws
+html5lib
