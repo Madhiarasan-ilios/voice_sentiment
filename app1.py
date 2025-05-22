@@ -9,11 +9,26 @@ from langchain_aws import ChatBedrock
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import string
+from dotenv import load_dotenv
 
-# AWS Clients
-transcribe = boto3.client('transcribe')
-translate = boto3.client('translate')
-s3 = boto3.client('s3')
+# Load environment variables
+load_dotenv()
+
+# Fetch credentials from environment
+AWS_ACCESS_KEY = os.getenv("Access_key_ID")
+AWS_SECRET_KEY = os.getenv("Secret_access_key")
+AWS_REGION = os.getenv("aws_region")
+
+# AWS Clients using credentials from environment
+session = boto3.Session(
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=AWS_REGION
+)
+
+transcribe = session.client('transcribe')
+translate = session.client('translate')
+s3 = session.client('s3')
 
 # Bedrock LLM
 llm = ChatBedrock(model_id="meta.llama3-70b-instruct-v1:0")
