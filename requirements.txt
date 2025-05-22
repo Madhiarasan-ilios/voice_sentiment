@@ -4,3 +4,4 @@ langchain
 langchain-core
 langchain-aws
 html5lib
+dotenv
