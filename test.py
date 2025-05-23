@@ -1,61 +1,51 @@
 import asyncio
-import base64
-from app import TranscribeAudioHandler, MyTranscriptHandler
-import wave
+import websockets
+import sounddevice as sd
 
-class TestClientHandler:
-    def __init__(self):
-        self.transcriptions = []
+async def send_audio(ws):
+    """Send audio data to WebSocket server."""
+    loop = asyncio.get_event_loop()
+    input_queue = asyncio.Queue()
 
-    def send_transcription(self, transcription):
-        self.transcriptions.append(transcription)
+    def audio_callback(indata, frames, time, status):
+        loop.call_soon_threadsafe(input_queue.put_nowait, indata.tobytes())
 
-class TestTranscribeAudioHandler(TranscribeAudioHandler):
-    def __init__(self, client_handler, region="ap-south-1"):
-        super().__init__(client_handler, region)
-        self._transcription_task = None
+    # Record audio stream
+    stream = sd.InputStream(
+        channels=1,
+        samplerate=16000,
+        dtype='int16',
+        callback=audio_callback,
+        blocksize=1024
+    )
 
-    async def start_transcription(self):
-        self._stream = await self._transcribe_client.start_stream_transcription(
-            language_code="en-US",
-            media_sample_rate_hz=16000,
-            media_encoding="pcm"
-        )
-        handler = MyTranscriptHandler(self._client_handler)
-        self._transcription_task = asyncio.create_task(handler.handle_events(self._stream))
-
-    async def end_stream(self):
-        if self._is_streaming:
-            await self._stream.input_stream.end_stream()
-            self._is_streaming = False
-            if self._transcription_task:
-                await self._transcription_task
-
-def read_audio_file(file_path, chunk_size=1600):
-    with wave.open(file_path, 'rb') as wf:
-        if wf.getframerate() != 16000:
-            raise ValueError("Audio file must be 16000 Hz")
-        if wf.getsampwidth() != 2:
-            raise ValueError("Audio file must be 16-bit PCM")
+    # Send audio stream to the server
+    with stream:
         while True:
-            frames = wf.readframes(chunk_size)
-            if not frames:
-                break
-            yield frames
+            indata = await input_queue.get()
+            await ws.send(indata)
 
-async def test_with_audio_file(file_path):
-    test_client = TestClientHandler()
-    handler = TestTranscribeAudioHandler(test_client, region="ap-south-1")
+async def receive_transcriptions(ws):
+    """Receive transcriptions from WebSocket server."""
+    async for message in ws:
+        print(f"Received: {message}")
 
-    for chunk in read_audio_file(file_path):
-        base64_chunk = base64.b64encode(chunk).decode('utf-8')
-        await handler.receive_audio(base64_chunk, "test_id")
+async def test_websocket():
+    uri = "ws://localhost:8000/TranscribeStreaming"
+    async with websockets.connect(uri) as ws:
 
-    await handler.end_stream()
+        send_task = asyncio.create_task(send_audio(ws))
+        receive_task = asyncio.create_task(receive_transcriptions(ws))
 
-    print("Collected transcriptions:")
-    for trans in test_client.transcriptions:
-        print(trans)
+        # Simulate user clicking a "submit" button after a period of recording
+        await asyncio.sleep(300)  # Record for 5 minutes
+        await ws.send("submit_response")
+        send_task.cancel()  # Stop sending audio data
+
+        await asyncio.gather(send_task, receive_task, return_exceptions=True)
+        await receive_task  # Ensure all messages are received
+        # Close the websocket connection after processing
+        await ws.close()
 
 if __name__ == "__main__":
-    asyncio.run(test_with_audio_file('FBAI_Sample_Tamil_CC_Healthcare.wav'))
+    asyncio.run(test_websocket())
